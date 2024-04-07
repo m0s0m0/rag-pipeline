@@ -1,153 +1,110 @@
+import os
 from exceptions.service_error import ServiceException
+from post.constants import FileFormats
+from .chroma import chroma_client
+from abc import ABC, abstractmethod
+from .ai import CustomEmbeddingFunction
 from exceptions.error_codes import ErrorCodes
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQAWithSourcesChain
 from rest_framework import status
-from functools import reduce
-from django.conf import settings
+from langchain_community.document_loaders import PyPDFLoader
+from .chroma import collection
+from openai import OpenAI
+
+class ChatService(object):
+    
+    def __init__(self, question) -> None:
+        self.question = question
+
+    
+    def process_answer_from_db(self) -> dict:
+        result = collection.query(query_texts=[self.question], n_results=5, include=["documents", 'distances',"embeddings"])
+        if not result:
+            return {}
+        ids = result.get('ids')[0]
+        documents = result.get('documents')[0]
+        distances = result.get('distances')[0]
+        context=  "\n".join(str(item) for item in result['documents'][0])
+        
+        import pdb; pdb.set_trace()
+        response = []
+        for id_, document, distance in zip(ids, documents, distances):
+            print(f"ID: {id_}, Document: {document}, Similarity: {1 - distance}")
+            response.append({'id': id_, "document": document, "similarity": 1-distance})
+       
+
+        return {"db_answer": response[0]["document"], "context": context, "meta_data": response, "chunk_id": response[0]["id"]}
 
 
-def calculate_parts(text_length,
-                    cutoff_parts=settings.CUTOFF_PARTS,
-                    margin_words=settings.PARTS_SIZE_MARGIN):
-    """
-    Calculate the number of parts in which a text can be divided while satisfying certain criteria.
-
-    Args:
-        text (str): The input text to be divided.
-        cutoff_parts (int, optional): The maximum number of parts the text can be divided into. Default is 10.
-        margin_words (int, optional): The margin of words allowed in the length of each part. Default is 100.
-
-    Returns:
-        int: The calculated number of parts that satisfy the given criteria.
-
-    Notes:
-        This function attempts to divide the input text into parts, ensuring that each part has a length not less than 500 characters and not more than 3000 characters.
-        The length of each part is also adjusted to have a margin of +-100 words from the target length.
-        The function may return fewer parts if the input text is very short (less than 500 characters) or if a valid division cannot be found within the given constraints.
-
-    Example:
-        input_text = "This is an example text that you want to divide into parts with similar length."
-        num_parts = calculate_parts(input_text)
-        print("Input string can be divided into", num_parts, "parts.")
-    """
-    total_chars = text_length
-    if total_chars < settings.MIN_PART_LENGTH:
-        return 1
-
-    if total_chars > settings.MAX_SUPPORTED_LENGTH:
-        raise ServiceException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, ErrorCodes.LARGE_STRING,
-            'Payload too big to analyze')
-
-    min_chars_per_part = settings.MIN_PART_LENGTH
-    max_chars_per_part = min(settings.MAX_PART_LENGTH, total_chars)
-
-    num_parts = 2
-    while num_parts <= cutoff_parts:
-        target_length = total_chars // num_parts
-        if min_chars_per_part <= target_length <= max_chars_per_part:
-            part_length_with_margin = target_length * num_parts
-            if part_length_with_margin <= max_chars_per_part * cutoff_parts:
-                return num_parts
-        num_parts += 1
-
-    return cutoff_parts
+    def process_answer_from_openai(self, context=None):
+        context = "Indian constituion"
+        prompt=f"""{context}```Based on the data in ```, answer {self.question}"""
+        messages = [
+            {"role": "system", "content": "You are an indian constitution teacher"},
+            {"role": "user", "content": prompt}
+]
+        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            temperature=0)
+        response_message = response.choices[0].message.content
+        return {"answer" :response_message}
 
 
-def find_text_split(text: str, text_length: int) -> int:
-    """
-    Find the optimal split point for dividing a text into parts.
-
-    :param text: Input text.
-    :param max_length: Maximum length for the entire text.
-    :param max_part_length(optional): Maximum length for each part.
-    :return: Optimal split point.
-    """
-    if len(text) <= text_length:
-        return len(text)
-
-    split_point = text_length
-    while split_point > 0 and not text[split_point - 1].isspace():
-        split_point -= 1
-    return split_point
+    def fetch_answer(self):
+        db_response = self.process_answer_from_db()
+        import pdb; pdb.set_trace()
+        context = db_response.get("context")
+        llm_response = self.process_answer_from_openai(context)
+        response = {**db_response, **llm_response}
+        return response
 
 
-def divide_text(text: str):
-    """
-    Divide a text into multiple parts.
+class DataIngestionService(ABC):
 
-    :param text: Input text.
-    :param number_of_parts: Number of parts to divide the text into.
-    :yield: Generator yielding text parts.
-    """
-    remaining_text = text
-    total_length = len(text)
-    number_of_parts = calculate_parts(total_length)
-    part_length = (total_length // number_of_parts)
-
-    for _ in range(number_of_parts - 1):
-        split_point = find_text_split(remaining_text, part_length)
-        if split_point > 0:
-            yield remaining_text[:split_point].rstrip()
-            remaining_text = remaining_text[split_point:].lstrip()
-
-    if remaining_text:
-        yield remaining_text
+    
+    @abstractmethod
+    def ingest(self):
+        pass
 
 
-def analyze_text(text, **kwargs):
-    """
-    Analyze the given text and calculate word-related metrics.
+class PdfIngestion(DataIngestionService):
 
-    :param text: Input text.
-    :param kwargs: Additional keyword arguments.
-    :return: Dictionary containing word-related metrics.
-    :raises ServiceException: If an error occurs during analysis.
-    """
-    try:
-        total_words = 0
-        total_word_length = 0
-        space_count = 0
-        in_word = False
+    def __init__(self, url: str):
+        self.url = url
+        
+    @property
+    def ingest(self):
+        loader = PyPDFLoader(self.url)
+        documents = loader.load()
+        return documents
 
-        for char in text:
-            if char == ' ':
-                space_count += 1
-                in_word = False
-            else:
-                if not in_word:
-                    in_word = True
-                    total_words += 1
-                total_word_length += 1
+class DataIngestionFactory(object):
+    INGESTION_FACTORY = {
+        "PDF": PdfIngestion,
+    }
 
-        if total_words == 0:
-            total_word_length = 0
-
-        return {
-            "total_words": total_words,
-            "total_word_length": total_word_length
-        }
-    except Exception as e:
-        raise ServiceException(500, ErrorCodes.INTERNAL_SERVER_ERROR, "Error during analysis", {'error': str(e)})
+    def __init__(self, file_format: FileFormats) -> None:
+        self.file_format = file_format
+    
+    @property
+    def get_ingestion_service(self):
+        try:
+            service = self.INGESTION_FACTORY[self.file_format]
+            return service
+        except KeyError as e:
+            raise ServiceException(status.HTTP_501_NOT_IMPLEMENTED, ErrorCodes.NOT_IMPLEMENTED, 'Ingestion for file format not implemented')
 
 
-def process_subtext_results(subtext_results: list, **kwargs: dict):
-    """
-    Process subtext analysis results and calculate aggregated metrics.
 
-    :param subtext_results: List of subtext analysis results.
-    :param kwargs: Additional keyword arguments.
-    :return: Dictionary containing aggregated metrics.
-    :raises ServiceException: If an error occurs during processing.
-    """
-    try:
-        total_words = reduce(lambda acc, result: acc + result.get('total_words', 0), subtext_results, 0)
-        total_word_length = reduce(lambda acc, result: acc + result.get('total_word_length', 0), subtext_results, 0)
 
-        average_word_length = round(total_word_length / total_words if total_words > 0 else 0, 2)
 
-        return {
-            "total_words": total_words,
-            "average_word_length": average_word_length
-        }
-    except Exception as e:
-        raise ServiceException(500, ErrorCodes.INTERNAL_SERVER_ERROR, "Error during subtext processing", {'error': str(e)})
+
+
+    
+
+
+
+

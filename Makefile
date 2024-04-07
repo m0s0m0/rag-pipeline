@@ -8,5 +8,5 @@ up_local:
 	docker-compose -f ./docker/docker-compose.local.yml up
 
 down_local:
-	docker-compose -f ./docker/docker-compose.local.yml down
+	docker-compose -f ./docker/docker-compose.local.yml down -v
 

@@ -6,7 +6,7 @@ from post.constants import FileFormats, ProcessingStatus, get_choices
 
 class IngestionLog(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    batch_id = models.UUIDField(max_length=36, null=True, blank=True, db_index=True)
+    batch_id = models.CharField(max_length=40, null=True, blank=True, db_index=True)
     url = models.CharField(max_length=200, null=True, blank=True)
     file_format = models.CharField(max_length=5, choices=get_choices(FileFormats))
     processing_status = models.CharField(max_length=12, choices=get_choices(ProcessingStatus), default=ProcessingStatus.PENDING.value)

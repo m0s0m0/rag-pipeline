@@ -29,7 +29,7 @@ ALLOWED_HOSTS = ['*']
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://redis:6379/1",
+        "LOCATION": "redis://localhost:6379/1",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         }
@@ -39,8 +39,8 @@ CACHES = {
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 SESSION_CACHE_ALIAS = "default"
 
-CELERY_BROKER_URL = 'redis://redis:6379/2'
-CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
+CELERY_BROKER_URL = 'redis://localhost:6379/2'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 CELERY_CREATE_MISSING_QUEUES = True
 
 # Application definition
@@ -75,6 +75,8 @@ MIN_PART_LENGTH = 100000
 MAX_SUPPORTED_LENGTH = 3000000
 
 ROOT_URLCONF = 'post_analyzer.urls'
+CHROMA_HOST = "localhost"
+CHROMA_COLLECTION = "rag_collection"
 
 TEMPLATES = [
     {

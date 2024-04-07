@@ -1,43 +1,55 @@
 import logging
 import os
-from celery import shared_task
-from langchain_community.document_loaders import PyPDFLoader
+from typing import List
+from uuid import UUID
+
+from celery import shared_task, group
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores.faiss import FAISS
+from post.constants import FileFormats
+from post.models import IngestionLog
 from .chroma import chroma_client
 from chromadb.utils import embedding_functions
-from .embedding import CustomEmbeddingFunction
+from .ai import CustomEmbeddingFunction
+from langchain_openai import OpenAIEmbeddings
+import dask
+from dask import delayed
+from dask.distributed import Client
+from langchain_core.documents.base import Document
+from .core import DataIngestionFactory
+from .chroma import collection
 
+client = Client()
 
+def get_urls_for_batch(batch_id: str) -> List[str]:
+    logs = IngestionLog.objects.filter(batch_id=batch_id)
+    urls = logs.values_list('url', 'file_format')
+    return list(urls)
+
+@delayed
+def split_document(document: Document):
+    text_splitter = RecursiveCharacterTextSplitter(separators = ["\n\n", "\n", " ", ""], chunk_size = 1600, chunk_overlap= 200)
+    return text_splitter.split_documents(documents=[document])
+    
 
 @shared_task
-def ingest_data():
-    EMBED_MODEL = "all-MiniLM-L6-v2"
-    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-    CHROMA_PATH  = "rag_train"
-    loader = PyPDFLoader("https://afeias.com/wp-content/uploads/2023/06/HISTORY-ENGLISH.pdf")
-    pages = loader.load()
-    documents = [
-    "A group of vibrant parrots chatter loudly, sharing stories of their tropical adventures.",
-    "The mathematician found solace in numbers, deciphering the hidden patterns of the universe.",
-    "The robot, with its intricate circuitry and precise movements, assembles the devices swiftly.",
-    "The chef, with a sprinkle of spices and a dash of love, creates culinary masterpieces.",
-    "The ancient tree, with its gnarled branches and deep roots, whispers secrets of the past.",
-    "The detective, with keen observation and logical reasoning, unravels the intricate web of clues.",
-    "The sunset paints the sky with shades of orange, pink, and purple, reflecting on the calm sea.",
-    "In the dense forest, the howl of a lone wolf echoes, blending with the symphony of the night.",
-    "The dancer, with graceful moves and expressive gestures, tells a story without uttering a word.",
-    "In the quantum realm, particles flicker in and out of existence, dancing to the tunes of probability."]
-    chunks = text_splitter.split_documents(pages)
-    document_ids = list(map(lambda tup: f"id{tup[0]}", enumerate(documents)))
-    test_collection = chroma_client.get_or_create_collection(name="sample_collection", embedding_function=CustomEmbeddingFunction())
-    print ("test_collection", test_collection)
-    test_collection.add(documents=documents, ids=document_ids)
+def process_url(url: str, file_format: FileFormats):
+    ingestion_service = DataIngestionFactory(file_format).get_ingestion_service
+    documents = ingestion_service(url).ingest
+    logging.error(len(documents))
+    delayed_results = dask.compute(*[dask.delayed(split_document)(doc) for doc in documents])
+    all_chunks = [item for sublist in delayed_results for item in sublist]
+    chunk_ids = [f"chunk_{index}" for index in enumerate(all_chunks)]
+    page_contents = [doc.page_content for doc in all_chunks]
+    collection.add(documents=page_contents, ids=chunk_ids)
+    return len(all_chunks)
 
-
-
-
-
-
+@shared_task
+def ingest_data(batch_id: str):
+    urls = get_urls_for_batch(str(batch_id))
+    task_group = group(process_url.s(url, file_format) for url, file_format in urls)
+    result_group = task_group()
+    
 
