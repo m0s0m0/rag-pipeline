@@ -1,25 +1,14 @@
-import logging
 import json
-import random
-from langchain import hub
-from langchain_openai import ChatOpenAI
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_community.vectorstores.faiss import FAISS
-from langchain.chains import create_retrieval_chain
 from pydantic import ValidationError
 from rest_framework import status
-
-from django.conf import settings
 
 from exceptions.error_codes import ErrorCodes
 from exceptions.service_error import ServiceException
 from utils.response import SendAsyncResponse
 from utils.common import generate_uuid, get_file_url_extension
 from .validators import ChatDTO, DataIngestionDTO
-from .chroma import chroma_client
-from .ai import CustomEmbeddingFunction
 from .models import IngestionLog
-from .async_queries import create_chat, ingestion_log_bulk_create, filter_ingestion_logs
+from .async_queries import create_chat, filter_ingestion_logs
 from .tasks import ingest_data
 from .core import ChatService
 

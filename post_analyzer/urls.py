@@ -22,4 +22,4 @@ handler500 = 'exceptions.exception_handler.error_500'
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    re_path(r'^api/(?P<version>(v1))/post/', include('post.urls')),]
+    re_path(r'^api/(?P<version>(v1))/rag/', include('post.urls')),]

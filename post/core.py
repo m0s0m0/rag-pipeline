@@ -1,12 +1,9 @@
+import logging
 import os
 from exceptions.service_error import ServiceException
-from post.constants import FileFormats
-from .chroma import chroma_client
+from post.constants import FileFormats, ProcessingStatus
 from abc import ABC, abstractmethod
-from .ai import CustomEmbeddingFunction
 from exceptions.error_codes import ErrorCodes
-from langchain.chat_models import ChatOpenAI
-from langchain.chains import RetrievalQAWithSourcesChain
 from rest_framework import status
 from langchain_community.document_loaders import PyPDFLoader
 from .chroma import collection
@@ -27,7 +24,6 @@ class ChatService(object):
         distances = result.get('distances')[0]
         context=  "\n".join(str(item) for item in result['documents'][0])
         
-        import pdb; pdb.set_trace()
         response = []
         for id_, document, distance in zip(ids, documents, distances):
             print(f"ID: {id_}, Document: {document}, Similarity: {1 - distance}")
@@ -55,7 +51,6 @@ class ChatService(object):
 
     def fetch_answer(self):
         db_response = self.process_answer_from_db()
-        import pdb; pdb.set_trace()
         context = db_response.get("context")
         llm_response = self.process_answer_from_openai(context)
         response = {**db_response, **llm_response}
@@ -77,9 +72,13 @@ class PdfIngestion(DataIngestionService):
         
     @property
     def ingest(self):
-        loader = PyPDFLoader(self.url)
-        documents = loader.load()
-        return documents
+        try:
+            loader = PyPDFLoader(self.url)
+            documents = loader.load()
+            return documents
+        except Exception as e:
+            logging.error(str(e))
+            return 
 
 class DataIngestionFactory(object):
     INGESTION_FACTORY = {
@@ -96,15 +95,3 @@ class DataIngestionFactory(object):
             return service
         except KeyError as e:
             raise ServiceException(status.HTTP_501_NOT_IMPLEMENTED, ErrorCodes.NOT_IMPLEMENTED, 'Ingestion for file format not implemented')
-
-
-
-
-
-
-
-    
-
-
-
-

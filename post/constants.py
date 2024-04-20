@@ -9,8 +9,8 @@ class FileFormats(Enum):
 class ProcessingStatus(Enum):
     PENDING = "PENDING"
     STARTED = "STARTED"
-    IN_PROGRESS = "IN_PROGRESS"
     FAILED = "FAILED"
+    DONE = "DONE"
     
 
 

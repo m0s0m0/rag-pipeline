@@ -10,6 +10,7 @@ class IngestionLog(models.Model):
     url = models.CharField(max_length=200, null=True, blank=True)
     file_format = models.CharField(max_length=5, choices=get_choices(FileFormats))
     processing_status = models.CharField(max_length=12, choices=get_choices(ProcessingStatus), default=ProcessingStatus.PENDING.value)
+    failure_reason = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now=True)
     updated_at = models.DateTimeField(auto_now=True)
 
