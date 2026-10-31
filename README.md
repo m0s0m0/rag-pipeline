@@ -1,5 +1,7 @@
 # RAG Pipeline
 
+*Ingestion, retrieval, and generation originally built in 2024. Agentic retrieval added, and the README rewritten/secrets cleaned, in 2026.*
+
 An async, distributed RAG (retrieval-augmented generation) pipeline: ingest documents from URLs, chunk and embed them in parallel, store them in a vector DB, and answer questions grounded in what was ingested. Demo corpus: the Indian Constitution.
 
 ## Tech stack
