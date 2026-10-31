@@ -10,7 +10,7 @@ from .validators import ChatDTO, DataIngestionDTO
 from .models import IngestionLog
 from .async_queries import create_chat, filter_ingestion_logs
 from .tasks import ingest_data
-from .core import ChatService
+from .core import ChatService, AgenticChatService
 
 
 def data_ingestion(request, *args, **kwargs):
@@ -108,3 +108,36 @@ async def chat(request, *args, **kwargs):
             status.HTTP_500_INTERNAL_SERVER_ERROR, None,
             error_code=500, message=str(e))
 
+
+async def agentic_chat(request, *args, **kwargs):
+    try:
+        if request.method != 'POST':
+            raise ServiceException(
+                status.HTTP_405_METHOD_NOT_ALLOWED,
+                ErrorCodes.METHOD_NOT_ALLOWED,
+                message='Method not allowed')
+
+        data = json.loads(request.body)
+        chat_dto = ChatDTO(**data)
+        question = chat_dto.question
+
+        result = AgenticChatService(question).fetch_answer()
+
+        await create_chat(dict(question=question, answer=result["answer"], meta_data=result["meta_data"]))
+
+        return SendAsyncResponse(
+            status.HTTP_200_OK, result, 'Answer Fetched Successfully')
+
+    except ValidationError as e:
+        return SendAsyncResponse(status.HTTP_400_BAD_REQUEST,
+            ErrorCodes.REQUEST_VALIDATION_FAILED.value, 'Data Not valid')
+
+    except ServiceException as e:
+        return SendAsyncResponse(
+            e.status_code, None,
+            error_code=e.error_code, message=e.message)
+
+    except Exception as e:
+        return SendAsyncResponse(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, None,
+            error_code=500, message=str(e))

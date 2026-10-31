@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from exceptions.service_error import ServiceException
@@ -55,6 +56,62 @@ class ChatService(object):
         llm_response = self.process_answer_from_openai(context)
         response = {**db_response, **llm_response}
         return response
+
+
+class AgenticChatService(object):
+
+    MAX_STEPS = 3
+
+    SEARCH_TOOL = [{
+        "type": "function",
+        "function": {
+            "name": "search_documents",
+            "description": "search the ingested documents for passages relevant to a query",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+    }]
+
+    def __init__(self, question) -> None:
+        self.question = question
+        self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+    def search_documents(self, query: str) -> str:
+        result = collection.query(query_texts=[query], n_results=5, include=["documents", "distances"])
+        if not result or not result.get('documents'):
+            return "no matching documents"
+        return "\n".join(result['documents'][0])
+
+    def fetch_answer(self):
+        messages = [
+            {"role": "system", "content": "You are an indian constitution teacher. Call search_documents before answering, and call it again if the first result is not enough."},
+            {"role": "user", "content": self.question},
+        ]
+        queries_made = []
+
+        # the model decides when to search and when it has enough to answer, instead of one fixed lookup
+        for _ in range(self.MAX_STEPS):
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=messages,
+                tools=self.SEARCH_TOOL,
+                temperature=0)
+            message = response.choices[0].message
+
+            if not message.tool_calls:
+                return {"answer": message.content, "meta_data": queries_made}
+
+            messages.append(message)
+            for call in message.tool_calls:
+                args = json.loads(call.function.arguments)
+                queries_made.append(args["query"])
+                context = self.search_documents(args["query"])
+                messages.append({"role": "tool", "tool_call_id": call.id, "content": context})
+
+        return {"answer": "could not find a grounded answer in time", "meta_data": queries_made}
 
 
 class DataIngestionService(ABC):

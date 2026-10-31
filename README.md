@@ -11,6 +11,8 @@ Python, Django, Celery, Redis, Dask, LangChain, ChromaDB, Sentence-Transformers,
 
 **Retrieval + generation.** A question is embedded and matched against the Chroma collection (`collection.query`, top-5 by similarity). The retrieved chunks become the grounding context for a call to OpenAI (`gpt-3.5-turbo`) — the answer is only generated from what was actually retrieved, not from the model's own unguided knowledge. Every question/answer pair is persisted (`Chat` model) for later review.
 
+**Agentic retrieval (`/agentic-chat/`).** The plain `/chat/` endpoint always does exactly one fixed similarity search before answering. `AgenticChatService` instead gives the model a `search_documents` tool and lets it decide when to call it — it can search, look at what came back, search again with a different query if that wasn't enough, up to `MAX_STEPS` attempts, and only answers once it chooses to stop searching. Which queries it actually issued are logged as `meta_data` on the `Chat` row, so you can see what it searched for, not just what it answered.
+
 **Supporting pieces:** a custom `async_retry_and_timeout` decorator (bounded retries + timeout around async DB calls, raising a typed `ServiceException` instead of letting a hang propagate) and a custom async-aware response-caching decorator for Django views.
 
 ## Running locally
